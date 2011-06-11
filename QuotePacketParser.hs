@@ -72,12 +72,15 @@ data QuotePacket = QuotePacket {
       --No. of best ask quote(4th)              4
       --No. of best ask quote(5th)              4
       -- *Quote accept time*                    8  HHMMSSuu
-    , qat :: BC.ByteString
+    , qat :: DiffTime
       --End of Message                          1  0xff
     } deriving Eq
 
+instance Ord QuotePacket where
+    compare qp1 qp2 = compare (qat qp1) (qat qp2)
+
 instance Show QuotePacket where
-    show qp = (humanizeHour $ BC.unpack (qat qp)) ++ " " ++ BC.unpack (issueCode qp) ++ " " 
+    show qp = (show $ qat qp) ++ " " ++ BC.unpack (issueCode qp) ++ " " 
            
            ++ delZeros (bstBidQt5 qp) ++ "@" ++ delZeros (bstBidPrc5 qp) ++ " "
            ++ delZeros (bstBidQt4 qp) ++ "@" ++ delZeros (bstBidPrc4 qp) ++ " "
@@ -124,7 +127,11 @@ parseQP = do
     bstAskPrc5 <- getBytes 5
     bstAskQt5 <- getBytes 7
     skip 50
-    qat <- getBytes 8
+    qatH <- getBytes 2
+    qatM <- getBytes 2
+    qatS <- getBytes 2
+    qatU <- getBytes 2
+    let qat = fromBytesToSeconds [qatH,qatM,qatS,qatU]
     eop <- getWord8
     if eop /= 0xff
       then do
@@ -135,3 +142,10 @@ parseQP = do
                          bstBidPrc2 bstBidQt2 bstBidPrc3 bstBidQt3 bstBidPrc4 bstBidQt4 bstBidPrc5 bstBidQt5
                          bstAskPrc1 bstAskQt1 bstAskPrc2 bstAskQt2 bstAskPrc3 bstAskQt3 bstAskPrc4 bstAskQt4
                          bstAskPrc5 bstAskQt5 qat,bs)
+
+fromBytesToSeconds :: [BC.ByteString] -> DiffTime
+fromBytesToSeconds [qatH,qatM,qatS,qatU] = let h = (read(BC.unpack qatH)::Integer)*3600
+                                               m = (read(BC.unpack qatM)::Integer)*60
+                                               s = (read(BC.unpack qatS)::Integer)
+                                               u = (read(BC.unpack qatU)::Integer)*10000000000
+                                           in secondsToDiffTime(h+m+s) + picosecondsToDiffTime(u)
