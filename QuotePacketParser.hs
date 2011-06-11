@@ -2,7 +2,6 @@ module QuotePacketParser where
 
 import Data.Time.LocalTime
 import Data.Binary.Get
-import Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import Data.Char
@@ -15,51 +14,51 @@ data QuotePacket = QuotePacket {
       --Information Type                        2   03
       --Market Type                             1   4
       --Issue code                             12   ISIN code
-      issueCode :: ByteString
+      issueCode :: BC.ByteString
       --Issue seq.-no.                          3
       --Market Status Type                      2
       --Total bid quote volume                  7
       --Best bid price(1st)                     5
-    , bstBidPrc1 :: ByteString
+    , bstBidPrc1 :: BC.ByteString
       --Best bid quantity(1st)                  7
-    , bstBidQt1 :: ByteString
+    , bstBidQt1 :: BC.ByteString
       --Best bid price(2nd)                     5
-    , bstBidPrc2 :: ByteString
+    , bstBidPrc2 :: BC.ByteString
       --Best bid quantity(2nd)                  7
-    , bstBidQt2 :: ByteString
+    , bstBidQt2 :: BC.ByteString
       --Best bid price(3rd)                     5
-    , bstBidPrc3 :: ByteString
+    , bstBidPrc3 :: BC.ByteString
       --Best bid quantity(3rd)                  7
-    , bstBidQt3 :: ByteString
+    , bstBidQt3 :: BC.ByteString
       --Best bid price(4th)                     5
-    , bstBidPrc4 :: ByteString
+    , bstBidPrc4 :: BC.ByteString
       --Best bid quantity(4th)                  7
-    , bstBidQt4 :: ByteString
+    , bstBidQt4 :: BC.ByteString
       --Best bid price(5th)                     5
-    , bstBidPrc5 :: ByteString
+    , bstBidPrc5 :: BC.ByteString
       --Best bid quantity(5th)                  7
-    , bstBidQt5 :: ByteString
+    , bstBidQt5 :: BC.ByteString
       --Total ask quote volume                  7
       --Best ask price(1st)                     5
-    , bstAskPrc1 :: ByteString
+    , bstAskPrc1 :: BC.ByteString
       --Best ask quantity(1st)                  7
-    , bstAskQt1 :: ByteString
+    , bstAskQt1 :: BC.ByteString
       --Best ask price(2nd)                     5
-    , bstAskPrc2 :: ByteString
+    , bstAskPrc2 :: BC.ByteString
       --Best ask quantity(2nd)                  7
-    , bstAskQt2 :: ByteString
+    , bstAskQt2 :: BC.ByteString
       --Best ask price(3rd)                     5
-    , bstAskPrc3 :: ByteString
+    , bstAskPrc3 :: BC.ByteString
       --Best ask quantity(3rd)                  7
-    , bstAskQt3 :: ByteString
+    , bstAskQt3 :: BC.ByteString
       --Best ask price(4th)                     5
-    , bstAskPrc4 :: ByteString
+    , bstAskPrc4 :: BC.ByteString
       --Best ask quantity(4th)                  7
-    , bstAskQt4 :: ByteString
+    , bstAskQt4 :: BC.ByteString
       --Best ask price(5th)                     5
-    , bstAskPrc5 :: ByteString
+    , bstAskPrc5 :: BC.ByteString
       --Best ask quantity(5th)                  7
-    , bstAskQt5 :: ByteString
+    , bstAskQt5 :: BC.ByteString
       --No. of best bid valid quote(total)      5
       --No. of best bid quote(1st)              4
       --No. of best bid quote(2nd)              4
@@ -73,7 +72,7 @@ data QuotePacket = QuotePacket {
       --No. of best ask quote(4th)              4
       --No. of best ask quote(5th)              4
       -- *Quote accept time*                    8  HHMMSSuu
-    , qat :: ByteString
+    , qat :: BC.ByteString
       --End of Message                          1  0xff
     } deriving Eq
 
