@@ -78,7 +78,7 @@ data QuotePacket = QuotePacket {
     } deriving Eq
 
 instance Show QuotePacket where
-    show qp = (BC.unpack (qat qp)) ++ " " ++ BC.unpack (issueCode qp) ++ " " 
+    show qp = (humanizeHour $ BC.unpack (qat qp)) ++ " " ++ BC.unpack (issueCode qp) ++ " " 
            
            ++ delZeros (bstBidQt5 qp) ++ "@" ++ delZeros (bstBidPrc5 qp) ++ " "
            ++ delZeros (bstBidQt4 qp) ++ "@" ++ delZeros (bstBidPrc4 qp) ++ " "
@@ -95,9 +95,8 @@ instance Show QuotePacket where
               delZeros' s | Prelude.null s = "0"
                           | otherwise =  s
 
-humanizeHour = humanizeHour' . Prelude.concatMap appendZero
-humanizeHour' [t1,t2] = [t1,t2]
-humanizeHour' (t1:t2:xs) = [t1 , t2 , ':' ] ++ humanizeHour' xs
+humanizeHour [t1,t2] = [t1,t2]
+humanizeHour (t1:t2:xs) = [t1 , t2 , ':' ] ++ humanizeHour xs
 appendZero n = (if n<10 then "0" else "") ++ show n
 
 --parseQP :: Get (Maybe QuotePacket)
