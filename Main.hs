@@ -11,7 +11,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import Data.Char
 import Data.MeldableHeap.Lazy as LHeap
-import Control.Monad.State.Lazy
+import Control.Monad.State
 import qualified Data.List as List
 import Data.Time.Clock
 
@@ -38,41 +38,7 @@ instance Show PcapTime where
                                      u      = usec `quot` 10000 -- def of usec
       in humanizeHour $ Prelude.concatMap appendZero [h,m,s,u]
 
-getQuoteTime = qat . packet
-
 type Heap = LHeap.PQ TsuruPacket
-
-instance (Ord a, Show a) => Show (LHeap.PQ a) where
-    show = concat . List.intersperse "\n" . map show . toList
-
-f bs = evalStateT (process bs) LHeap.empty
-
-process :: BL.ByteString -> StateT Heap IO ()
-process bsi
-    | BL.null bsi = return ()
-    | otherwise = do
-        case runGet parsePacket bsi of
-            (Nothing, bs) -> process bs
-            (Just newp, bs) -> do
-                heap <- get
-                case findMin heap of
-                  Nothing -> do
-                    put $ insert newp heap
-                    process bs
-                  (Just ph) -> do
-                    if getQuoteTime ph > getQuoteTime newp
-                      then do -- discard this packet (this packet should be printed before, received too late)
-                        put $ insert newp heap
-                        process bs
-                      else if (getQuoteTime ph + secondsToDiffTime 3) > getQuoteTime newp
-                        then do -- this packet still inside our frame, so insert it
-                          put $ insert newp heap
-                          process bs
-                        else do
-                          lift $ print ph
-                          put $ snd $ fromJust $ extractMin heap
-                          put $ insert newp heap
-                          process bs
 
 main :: IO ()
 main = do
@@ -82,8 +48,7 @@ main = do
         pcap <- BL.readFile $ getInput o
         if containsOrdered o
           then do
-            print "Lets do it in order tomorrow..."
-            f $ toStream pcap 
+            process $ toStream pcap 
           else do
             forEachPacket print $ toStream pcap
       else do
@@ -173,3 +138,42 @@ udpCode = BL.pack [17]  -- code 17
 _15515  = BC.pack "<\155"
 _15516  = BC.pack "<\156"
 qcode   = BC.pack "B6034"
+
+{- This function is responsible to take care of the "-r" option. We process the pcap stream of packets and we keep as a sate
+   a MinHeap where we insert our parsed TsuruPackets sorted by Quote accept time (qat).
+
+   To keep the packets sorted we have 3 rules:
+     - If the qat of the first packet in the MinHeap is greater than the qat of the new packet
+       we need to discard this packet, because came too late in the network.
+     - if the qat of the first packet in the MinHeap + 3 seconds (our temporal sliding window)
+       is less than qat of the new packet we still are inside our time frame. So we insert the new packet
+     - Otherwise, we need to print the first packet in the MinHeap, extract it and insert the new packet.
+-}
+process bs = evalStateT (process' bs) LHeap.empty
+process' :: BL.ByteString -> StateT Heap IO ()
+process' bsi
+    | BL.null bsi = return()
+    | otherwise = do
+        case runGet parsePacket bsi of
+            (Nothing, bs) -> process' bs
+            (Just newp, bs) -> do
+                heap <- get
+                case findMin heap of
+                  Nothing -> do
+                    put $ insert newp heap
+                    process' bs
+                  (Just ph) -> do
+                    if getQuoteTime ph > getQuoteTime newp
+                      then do -- this packet was too late, lets discard it
+                        process' bs
+                      else do
+                        if (getQuoteTime ph + secondsToDiffTime 3) > getQuoteTime newp
+                          then do -- this packet still inside our time frame, so insert it
+                            put $ insert newp heap
+                            process' bs
+                          else do -- time to print the sorted packet (min in the heap) and insert the new one
+                            lift $ print ph
+                            put $ insert newp $ snd $ fromJust $ extractMin heap
+                            process' bs
+
+getQuoteTime = qat . packet
