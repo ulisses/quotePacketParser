@@ -1,71 +1,85 @@
 module Main where
 
-import Network.Pcap
-import qualified Data.ByteString as BL
-import GHC.Word
+import System.Environment
 import Data.Binary.Get
+import Data.Word
+import Data.Maybe
+import Control.Applicative
+import Control.Monad
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Char8 as BC
 import Data.Char
-
 import QuotePacketParser
+import Opts
+
+data TsuruPacket = TsuruPacket { timestamp :: PcapTime
+                               , packet    :: QuotePacket
+                               }
+    deriving Eq
+
+instance Show TsuruPacket where
+    show tp = show (timestamp tp) ++ " " ++ show (packet tp)
+
+newtype PcapTime = PcapTime (Int,Int)
+    deriving Eq
+
+instance Show PcapTime where
+    show (PcapTime (sec,usec)) = let (h,rs) = (sec `rem` 86400) `quotRem` 3600 -- hour and remaining seconds
+                                     (m,s)  = rs   `quotRem` 60 -- minutes and seconds
+                                     u      = usec `quot` 10000 -- def of usec
+      in humanizeHour' $ Prelude.concatMap appendZero [h,m,s,u]
 
 main :: IO ()
 main = do
-    p <- openOffline "mdf-kospi200.20110216-0.pcap"
-    process p
+    o <- getArgs >>= compileOpts
+    if containsInput o
+      then do
+        pcap <- BL.readFile $ getInput o
+        if containsOrdered o
+          then do
+            print "Lets do it in order tomorrow..."
+          else do
+            forEachPacket print $ toStream pcap
+      else do
+        getProgName >>= printErrors []
+    {- Skip the Pcap header -}
+    where toStream = runGet $ (skip 24 >> getRemainingLazyByteString)
 
---process :: PcapHandle  -> IO()
-process ph = do
-    p@(hdr,bs) <- nextBS ph
-    if BL.null bs then do return() else do
-        if isThePacketWeWant p
-            then do
-                print $ getQuotePacket bs
-                process ph
-            else
-                process ph
+forEachPacket f bsi | BL.null bsi = return ()
+                    | otherwise = do
+                          let (mp,bs) = runGet parsePacket bsi
+                          if mp == Nothing
+                            then forEachPacket f bs
+                            else do
+                              f $ fromJust mp
+                              forEachPacket f bs
 
-{- This function guarantee that the we are in the presence of "the packet we want".
-   This packet must:
-       - Have 257 bytes of length (14 for eth, 20 for IP, 8 for UDP and 215 of DATA)
-       - Be UDP (here we discard ARP, PIMv2, STP, NBS and protocols like that)
-       - Be a packet to UDP dst port 15515 or 15516
-       - Be a Quote packet inside UDP, this means, must have "B6034" in the beginning of DATA
--}
-isThePacketWeWant :: (PktHdr, BL.ByteString) -> Bool
-isThePacketWeWant (hdr,bs) = hdrCaptureLength hdr == 257
-                          && isUDP bs
-                          && isDstUDPPort bs
-                          && isQuotePacket bs
+parsePacket :: Get ((Maybe TsuruPacket), BL.ByteString)
+parsePacket = do
+    sec  <- getWord32host -- time sec
+    usec <- getWord32host -- time usec
+    len  <- getWord32host -- len received
+    skip 4 -- skip the original len
+    if len /= 257
+      then do
+        skip (fromIntegral len)
+        liftA2 (,) (return Nothing) getRemainingLazyByteString
+      else do
+        {- We drop 12 bytes, of the Ethernet II packet - 6 from the destination addr
+           and 6 more from the source addr. After this we have 2 bytes containing the
+           type of the nest packet, 0x0800 (or "\b\NUL" in ASCII) is IP.
+        -}
+        skip 12
+        proto <- getLazyByteString 2
+        if proto /= ipCode
+          then do
+            skip (fromIntegral len - 14)
+            liftA2 (,) (return Nothing) getRemainingLazyByteString
+          else do
+            skip 33
+            (p,bs) <- parseQP
+            if p == Nothing
+              then return (Nothing,bs)
+              else return (Just $ TsuruPacket (PcapTime (fromIntegral sec, fromIntegral usec)) $ fromJust p,bs)
 
-getQuotePacket :: BL.ByteString -> BL.ByteString
-getQuotePacket = dropUDPPacket
-
-isQuotePacket :: BL.ByteString -> Bool
-isQuotePacket bs = let quote = BL.take 5 $ dropUDPPacket bs
-                       magicBs = BL.pack $ map (fromIntegral . fromEnum) "B6034"
-                   in quote == magicBs
-
-isDstUDPPort :: BL.ByteString -> Bool
-isDstUDPPort bs = let _15515 = BL.pack [141,203] --port 15515
-                      _15516 = BL.pack [141,206] --port 15516
-                      bytes = BL.take 2 $ dropIPv4Packet bs
-                  in bytes == _15515 || bytes == _15516
-
-dropUDPPacket,dropIPv4Packet,dropEthPacket :: BL.ByteString -> BL.ByteString
-dropUDPPacket = BL.drop 8 . dropIPv4Packet
-dropIPv4Packet = BL.drop 20 . dropEthPacket
-dropEthPacket = BL.drop 14
-
-{- We drop 12 bytes, of the Ethernet II packet - 6 for the destination addr
-   and 6 more for the source addr. After that we have 2 bytes containing the
-   type of the nest packet, 0x0800 is UDP
--}
-isUDP :: BL.ByteString -> Bool
-isUDP bs = let field = BL.take 2 $ BL.drop 12 bs
-           in  field == BL.pack [8,0]
-
---printIt :: PktHdr -> Ptr Word8 -> IO ()
-printIt ph bs = do
-    print ph
-    print bs
-
+ipCode  = BL.pack [8,0] -- code 0x0800
