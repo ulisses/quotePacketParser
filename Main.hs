@@ -1,3 +1,4 @@
+{-#OPTIONS -XTypeSynonymInstances#-}
 module Main where
 
 import System.Environment
@@ -9,7 +10,10 @@ import Control.Monad
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.ByteString.Char8 as BC
 import Data.Char
-import qualified Data.MeldableHeap.Lazy as LHeap
+import Data.MeldableHeap.Lazy as LHeap
+import Control.Monad.State.Lazy
+import qualified Data.List as List
+import Data.Time.Clock
 
 import QuotePacketParser
 import Opts
@@ -18,6 +22,9 @@ data TsuruPacket = TsuruPacket { timestamp :: PcapTime
                                , packet    :: QuotePacket
                                }
     deriving Eq
+
+instance Ord TsuruPacket where
+    compare tp1 tp2 = compare (packet tp1) (packet tp2)
 
 instance Show TsuruPacket where
     show tp = show (timestamp tp) ++ " " ++ show (packet tp)
@@ -31,6 +38,42 @@ instance Show PcapTime where
                                      u      = usec `quot` 10000 -- def of usec
       in humanizeHour $ Prelude.concatMap appendZero [h,m,s,u]
 
+getQuoteTime = qat . packet
+
+type Heap = LHeap.PQ TsuruPacket
+
+instance (Ord a, Show a) => Show (LHeap.PQ a) where
+    show = concat . List.intersperse "\n" . map show . toList
+
+f bs = evalStateT (process bs) LHeap.empty
+
+process :: BL.ByteString -> StateT Heap IO ()
+process bsi
+    | BL.null bsi = return ()
+    | otherwise = do
+        case runGet parsePacket bsi of
+            (Nothing, bs) -> process bs
+            (Just newp, bs) -> do
+                heap <- get
+                case findMin heap of
+                  Nothing -> do
+                    put $ insert newp heap
+                    process bs
+                  (Just ph) -> do
+                    if getQuoteTime ph > getQuoteTime newp
+                      then do -- discard this packet (this packet should be printed before, received too late)
+                        put $ insert newp heap
+                        process bs
+                      else if (getQuoteTime ph + secondsToDiffTime 3) > getQuoteTime newp
+                        then do -- this packet still inside our frame, so insert it
+                          put $ insert newp heap
+                          process bs
+                        else do
+                          lift $ print ph
+                          put $ snd $ fromJust $ extractMin heap
+                          put $ insert newp heap
+                          process bs
+
 main :: IO ()
 main = do
     o <- getArgs >>= compileOpts
@@ -40,6 +83,7 @@ main = do
         if containsOrdered o
           then do
             print "Lets do it in order tomorrow..."
+            f $ toStream pcap 
           else do
             forEachPacket print $ toStream pcap
       else do
